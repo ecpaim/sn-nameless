@@ -1,0 +1,15 @@
+{
+  "name": "sn-nameless",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "index": "node index.js"
+  },
+  "repository": "https://github.com/ecpaim/sn-nameless.git",
+  "author": "eduardo paim <eduardochavespaim@gmail.com>",
+  "license": "None",
+  "private": true,
+  "dependencies": {
+    "express": "^4.17.1"
+  }
+}
