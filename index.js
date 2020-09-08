@@ -102,6 +102,8 @@ router.get('/protected', passport.authenticate('jwt', {session:false}), (req,res
     res.status(200).json({success: true, msg: 'you entered the protected route'})
 });
 
+module.exports.router = router;
+
 port = 3000
 app.listen(port, () => {
     console.log(`Listening on localhost:${port}/api`)

@@ -27,7 +27,7 @@ const options = {
  so we get the identity of the request by searching the db for the sub of the user
 */
 const strategy = new JwtStrategy(options, (payload, done) => {
-    console.log(payload)
+    //console.log(payload)
     // this will be replaced by a DB call
     let userExists = users.filter(user => user.username === payload.sub);
 
