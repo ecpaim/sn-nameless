@@ -12,7 +12,6 @@ const PUB_KEY = fs.readFileSync(pathToKey,'utf8'); // async cryptography key
 
 // just for tests
 const {users} = require('../db');
-console.log(users);
 
 // there are many more options in docs
 const options = {

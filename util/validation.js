@@ -33,9 +33,11 @@ exports.validateSignupData = (data) => {
 
     if(!isValidUsername(data.username)) errors.username = 'Must have just numbers, letters and dashes';
     if(data.username.trim().length < 3) errors.username = 'Must have at least 3 characters';
+    if(data.username.trim().length > 20) errors.username = 'Must have at most 20 characters';
 
     if(!isValidPassword(data.password)) errors.password = 'Must have just numbers, letters and @ # $ % & * ? as special characters';
     if(data.password.trim().length < 6) errors.password = 'Must have at least 6 characters';
+    if(data.password.trim().length > 40) errors.password = 'Must have at most 40 characters';
 
     if(data.password !== data.confirmPassword) errors.confirmPassword = 'Passwords must match';
     

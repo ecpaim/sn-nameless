@@ -22,7 +22,7 @@ app.use('/api', router); // needs to go after all middleware
 
 // just for tests
 const { users } = require('./db');
-console.log(users);
+//console.log(users);
 
 // MAIN PAGE
 router.get('/', (req,res) =>{
@@ -84,7 +84,9 @@ router.post('/signup', (req,res) => {
         users.push(newUser);
         if(true){
             const token = utils.issueJWT(newUser)
-            console.log(newUser)
+
+            console.log('Users: ')
+            console.log(users)
             
             return res.status(200).json({token: token, success: true});
         } else {

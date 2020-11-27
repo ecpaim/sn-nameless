@@ -51,6 +51,27 @@ describe("General tests", function() {
         .end(done);
     });
 
+    it('signup test username too long', function(done) {
+
+        request(app)
+        .post('/api/signup')
+        .send({
+            username: "user123456789123456789",
+            email: "user@email.com",
+            password: "123456",
+            confirmPassword: "123456"
+        })
+        .set('Content-Type','application/json')
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(400, {
+            errors: {
+                username: 'Must have at most 20 characters'
+            },
+            success: false
+        })
+        .end(done);
+    });
+
     it('signup test correct form', function(done) {
 
         request(app)
