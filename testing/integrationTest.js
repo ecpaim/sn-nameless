@@ -72,15 +72,59 @@ describe("General tests", function() {
         .end(done);
     });
 
-    it('signup test correct form', function(done) {
+    it('signup test email already in use', function(done) {
+
+        request(app)
+        .post('/api/signup')
+        .send({
+            username: "ANEWUSER",
+            email: "user2@email.com",
+            password: "654321",
+            confirmPassword: "654321"
+        })
+        .set('Content-Type','application/json')
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(function(res) {
+            if(res.body.errors.email === "Email already being used.")
+                return;
+            else {
+                throw new Error("failed to find email");
+            }
+        })
+        .end(done);
+    });
+
+    it('signup test username already in use', function(done) {
 
         request(app)
         .post('/api/signup')
         .send({
             username: "user2",
-            email: "user2@email.com",
+            email: "ANEWEMAIL@email.com",
             password: "654321",
             confirmPassword: "654321"
+        })
+        .set('Content-Type','application/json')
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(function(res) {
+            if(res.body.errors.username === "Username already being used.")
+                return;
+            else {
+                throw new Error("failed to find username");
+            }
+        })
+        .end(done);
+    });
+
+    it('signup test correct form', function(done) {
+
+        request(app)
+        .post('/api/signup')
+        .send({
+            username: "deletethis",
+            email: "delete@this.com",
+            password: "123&&&&",
+            confirmPassword: "123&&&&"
         })
         .set('Content-Type','application/json')
         .expect('Content-Type', 'application/json; charset=utf-8')
@@ -93,7 +137,7 @@ describe("General tests", function() {
         })
         .end(done);
     });
-
+    
     it('login empty password', function(done) {
         
         request(app)
@@ -133,13 +177,27 @@ describe("General tests", function() {
         .end(done);
     });
 
-    it('login test email form', function(done) {
+    it('login test email form wrong password', function(done) {
 
         request(app)
         .post('/api/login')
         .send({
-            emailOrUser: "user2@email.com",
-            password: "654321"
+            emailOrUser: "delete@this.com",
+            password: "123&&&4"
+        })
+        .set('Content-Type','application/json')
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(401, { errors: { password: 'Invalid password'}, success: false })
+        .end(done);
+    });
+
+    it('login test email form correct', function(done) {
+
+        request(app)
+        .post('/api/login')
+        .send({
+            emailOrUser: "delete@this.com",
+            password: "123&&&&"
         })
         .set('Content-Type','application/json')
         .expect('Content-Type', 'application/json; charset=utf-8')
@@ -153,13 +211,42 @@ describe("General tests", function() {
         .end(done);
     });
 
-    it('login test user form', function(done) {
+    it('login test username form wrong password', function(done) {
 
         request(app)
         .post('/api/login')
         .send({
-            emailOrUser: "user2",
-            password: "654321"
+            emailOrUser: "deletethis",
+            password: "123&&&4"
+        })
+        .set('Content-Type','application/json')
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(401, { errors: { password: 'Invalid password'}, success: false })
+        .end(done);
+    });
+
+    it('login test username form wrong username', function(done) {
+
+        request(app)
+        .post('/api/login')
+        .send({
+            emailOrUser: "deletethi",
+            password: "123&&&&"
+        })
+        .set('Content-Type','application/json')
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(401, { errors: { emailOrUser: 'Couldnt find email or username'}, success: false})
+        .end(done);
+    });
+
+    
+    it('login test username form', function(done) {
+
+        request(app)
+        .post('/api/login')
+        .send({
+            emailOrUser: "deletethis",
+            password: "123&&&&"
         })
         .set('Content-Type','application/json')
         .expect('Content-Type', 'application/json; charset=utf-8')
@@ -173,6 +260,17 @@ describe("General tests", function() {
         })
         .end(done);
     });
+
+    it('acessing protected route with wrong token', function(done) {
+        
+        request(app)
+        .get('/api/protected')
+        .set('Content-Type','application/json')
+        .set('Authorization','jsdoifjosidjfoisdjfoisjdfoisjdofijs')
+        .expect(401, 'Unauthorized')
+        .end(done);
+    });
+    
     it('acessing protected route with fresh token', function(done) {
         
         request(app)
@@ -183,7 +281,7 @@ describe("General tests", function() {
         .expect(200, {success: true, msg: 'you entered the protected route'})
         .end(done);
     });
-
+    
 
 });
 

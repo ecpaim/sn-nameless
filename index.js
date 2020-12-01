@@ -24,6 +24,14 @@ app.use('/api', router); // needs to go after all middleware
 const { users } = require('./db');
 //console.log(users);
 
+// AWS and DynamoDB
+var AWS = require("aws-sdk");
+AWS.config.update({
+    region: "sa-east-1",
+    endpoint: "https://dynamodb.sa-east-1.amazonaws.com"
+});
+var docClient = new AWS.DynamoDB.DocumentClient()
+
 // MAIN PAGE
 router.get('/', (req,res) =>{
     res.send('hello world')
@@ -37,32 +45,86 @@ router.post('/login', (req,res) => {
     if(!valid){
         return res.status(400).json({errors: errors, success: false});
     }
-    let userExists;
+  
     if(email){
         // will be replaced by a db call
-        userExists = users.filter(user => user.email === req.body.emailOrUser);
+
+        var params = {
+            TableName: "SNROOT",
+            IndexName: "EmailIndex",
+            KeyConditionExpression: "email = :em",
+            ExpressionAttributeValues:{
+                ":em": req.body.emailOrUser.trim()
+            }
+        };
+
+        docClient.query(params, function(err, data) {
+            if(err){
+                console.log("Unexpected error ocurred while trying to get email from db: ", JSON.stringify(err, null, 2));
+
+                return res.status(500).json({errors: { emailOrUser: 'Couldnt find email or username'}, success: false});
+
+            } else if (data.Items.length == 0) {
+
+                return res.status(401).json({ errors: { emailOrUser: 'Couldnt find email or username'}, success: false});
+          
+            }else {
+
+                let user = data.Items[0];
+
+                const isValid = utils.validPassword(req.body.password, user.hash, user.salt);
+
+                if(isValid){
+
+                    const token = utils.issueJWT(user);  
+                    return res.status(200).json({token: token, success: true});
+
+                } else {
+                    return res.status(401).json({ errors: { password: 'Invalid password'}, success: false });
+                }
+            }
+
+        });
+
     }
     else{
         // will be replaced by a db call
-        userExists = users.filter(user => user.username === req.body.emailOrUser);
+        var params = {
+            TableName : "SNROOT",
+            Key: {
+                PKEY: 'USER#' + req.body.emailOrUser.trim(),
+                SKEY: '#METADATA#' + req.body.emailOrUser.trim() 
+            }
+          };
+          docClient.get(params, function(err, data) {
+            if(err){
+                console.log("Unexpected error ocurred while trying to get user from db: ", JSON.stringify(err, null, 2));
+                
+                return res.status(500).json({errors: { emailOrUser: 'Couldnt find email or username'}, success: false});
+
+            } else if (!data.Item) {
+
+                return res.status(401).json({ errors: { emailOrUser: 'Couldnt find email or username'}, success: false});
+          
+            }else {
+
+                let user = data.Item;
+
+                const isValid = utils.validPassword(req.body.password, user.hash, user.salt);
+
+                if(isValid){
+
+                    const token = utils.issueJWT(user);  
+                    return res.status(200).json({token: token, success: true});
+
+                } else {
+                    return res.status(401).json({ errors: { password: 'Invalid password'}, success: false });
+                }
+            }
+
+        });
     }
     
-  
-    if (userExists.length === 0) {
-        return res.status(401).json({ errors: { emailOrUser: 'Couldnt find email or username'}, success: false});
-    } else {
-
-        let user = userExists[0];
-        const isValid = utils.validPassword(req.body.password, user.hash, user.salt);
-
-        if(isValid){
-            const token = utils.issueJWT(user);
-            
-           return res.status(200).json({token: token, success: true});
-        } else {
-           return res.status(401).json({ errors: { password: 'Invalid password'}, success: false });
-        }
-    }
 
 });
 
@@ -71,30 +133,66 @@ router.post('/signup', (req,res) => {
 
     const {errors, valid} = validateSignupData(req.body);
 
-    if(valid){
-        const {salt, hash} = utils.genPassword(req.body.password);
-        const newUser = {
-            _id: req.body.username,
-            username: req.body.username,
-            email: req.body.email,
-            hash: hash,
-            salt: salt
+    //A global secondary index only tracks data items where its key attributes actually exist
+    if(valid){ // checks if email is not being used by another account
+        var params = {
+            TableName: "SNROOT",
+            IndexName: "EmailIndex",
+            KeyConditionExpression: "email = :em",
+            ExpressionAttributeValues:{
+                ":em": req.body.email.trim()
+            }
         };
-        // this will be replaced by a db call
-        users.push(newUser);
-        if(true){
-            const token = utils.issueJWT(newUser)
+        docClient.query(params, function(err, data) {
+            if(err){
+                console.log("Unexpected error ocurred while trying to get email from db: ", JSON.stringify(err, null, 2));
+                errors.email = "Couldn't verify email.";
+                return res.status(500).json({errors, success: false});
 
-            console.log('Users: ')
-            console.log(users)
-            
-            return res.status(200).json({token: token, success: true});
-        } else {
-            return res.status(500).json({msg: 'couldnt add user to database', success: true});
-        }
+            } else if (data.Items.length > 0) {
+                //console.error("Email already being used. Error JSON:", JSON.stringify(err, null, 2));
+                errors.email = "Email already being used.";
+                return res.status(400).json({errors, success: false});
+
+            }else {
+                
+                // add new user to db and send back jwt 
+                const {salt, hash} = utils.genPassword(req.body.password);
+                const newUser = {
+                    PKEY: 'USER#' + req.body.username.trim(),
+                    SKEY: '#METADATA#' + req.body.username.trim(),
+                    email: req.body.email.trim(),
+                    hash: hash,
+                    salt: salt
+                };
+
+                var params = {
+                    TableName: "SNROOT",
+                    Item: newUser,
+                    ConditionExpression: "attribute_not_exists(SKEY)"
+                };
+                
+                docClient.put(params, function(err, data) {
+                    if (err) {
+                        //console.error("Unable to add user to the database. Error JSON:", JSON.stringify(err, null, 2));
+                        errors.username = "Username already being used.";
+                        return res.status(400).json({errors, success: false});
+
+                    } else {
+                        //console.log("User successfully added to the database:", JSON.stringify(data, null, 2));
+
+                        const token = utils.issueJWT(newUser)
+                        
+                        return res.status(200).json({token: token, success: true});
+                    }
+                });
+            }
+        });
     } else {
+        // invalid field contents
         return res.status(400).json({errors: errors, success: false});
     }
+    
 });
 
 // PROTECTED ROUTE, FOR TESTING PORPOUSES
