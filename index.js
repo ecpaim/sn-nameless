@@ -15,7 +15,7 @@ const limiter = rateLimit({
   });
 
 app.use(passport.initialize()); // initializes passport obj on every request
-app.use(express.json({ limit: '10kb' })); // reads requests as json, helps against DOS attacks
+app.use(express.json({ limit: '20kb' })); // reads requests as json, helps against DOS attacks
 app.use(helmet()); // protects against minor attacks
 app.use(limiter); // protects against brute force attacks
 app.use('/api', router); // needs to go after all middleware
@@ -34,7 +34,7 @@ var docClient = new AWS.DynamoDB.DocumentClient()
 
 // MAIN PAGE
 router.get('/', (req,res) =>{
-    res.send('hello world')
+    res.status(200).json({success: true, msg: 'hello world'});
 });
 
 // LOGIN PAGE
@@ -232,6 +232,63 @@ router.post('/exc', passport.authenticate('jwt', {session:false}), (req,res) =>{
     }
 
     
+});
+
+/* 
+    creates a post with fields:
+        timestamp: time post was sent
+        description: the text
+        numberComments:
+        numberLikes:
+        numberGifts:
+        last comment: another json
+        picture: to do
+*/
+router.post('/pst', passport.authenticate('jwt', {session:false}), (req,res) =>{
+    const newPost = {
+        PKEY: req.user.PKEY,
+        SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + req.body.timestamp,
+        timestamp: req.body.timestamp,
+        description: req.body.description,
+        nComments: 0,
+        nLikes: 0,
+        nGifts: 0,
+        lastComment: {}
+    };
+
+    var params = {
+        TableName: "SNROOT",
+        Item: newPost,
+        ConditionExpression: "attribute_not_exists(SKEY)"
+    };
+    
+    docClient.put(params, function(err, data) {
+        if(err){
+            return res.status(500).json({success: false, msg: 'Could not create post'});
+        } else {
+            return res.status(200).json({success: true, msg: 'Post created successfully'});
+        }
+    });
+});
+
+// deletes post. body contains timestamp: timestamp of post
+// this will have to be refactored to remove likes, comments and gifts as well
+router.post('/excpst', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    var params = {
+        TableName: 'SNROOT',
+        Key: {
+            PKEY: req.user.PKEY,
+            SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + req.body.timestamp
+        }
+    }
+    docClient.delete(params, function(err, data){
+        if(err){
+            return res.status(500).json({success: false, msg: 'Could not remove post from database'});
+        }else{
+            return res.status(200).json({success: true, msg: 'Post removed successfully'});
+        }
+    })
 });
 
 module.exports.router = router;

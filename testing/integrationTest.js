@@ -282,16 +282,35 @@ describe("General tests", function() {
         .end(done);
     });
 
-    it('acessing protected route with fresh token', function(done) {
+    it('creating post successfully', function(done) {
         
         request(app)
-        .get('/api/protected')
+        .post('/api/pst')
+        .send({
+            timestamp: "2020-01-01",
+            description: "my first post"
+        })
         .set('Content-Type','application/json')
         .set('Authorization',token)
         .expect('Content-Type', 'application/json; charset=utf-8')
-        .expect(200, {success: true, msg: 'you entered the protected route'})
+        .expect(200, {success: true, msg: 'Post created successfully'})
         .end(done);
     });
+
+    it('removing post successfully', function(done) {
+        
+        request(app)
+        .post('/api/excpst')
+        .send({
+            timestamp: "2020-01-01"
+        })
+        .set('Content-Type','application/json')
+        .set('Authorization',token)
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(200, {success: true, msg: 'Post removed successfully'})
+        .end(done);
+    });
+
 
     it('delete user with wrong password', function(done) {
         
