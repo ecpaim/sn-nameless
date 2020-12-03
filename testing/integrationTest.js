@@ -281,6 +281,44 @@ describe("General tests", function() {
         .expect(200, {success: true, msg: 'you entered the protected route'})
         .end(done);
     });
+
+    it('acessing protected route with fresh token', function(done) {
+        
+        request(app)
+        .get('/api/protected')
+        .set('Content-Type','application/json')
+        .set('Authorization',token)
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(200, {success: true, msg: 'you entered the protected route'})
+        .end(done);
+    });
+
+    it('delete user with wrong password', function(done) {
+        
+        request(app)
+        .post('/api/exc')
+        .send({
+            password: "wrong123"
+        })
+        .set('Content-Type','application/json')
+        .set('Authorization',token)
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(400, {success: false, msg: 'Invalid password'})
+        .end(done);
+    });
+    it('delete user with correct password', function(done) {
+        
+        request(app)
+        .post('/api/exc')
+        .send({
+            password: "123&&&&"
+        })
+        .set('Content-Type','application/json')
+        .set('Authorization',token)
+        .expect('Content-Type', 'application/json; charset=utf-8')
+        .expect(200, {success: true, msg: 'User removed successfully'})
+        .end(done);
+    });
     
 
 });

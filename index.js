@@ -202,6 +202,38 @@ router.get('/protected', passport.authenticate('jwt', {session:false}), (req,res
     res.status(200).json({success: true, msg: 'you entered the protected route'})
 });
 
+// delete account (DOES NOT DELETE POSTS, WILL REQUIRE REFACTOR LATER)
+router.post('/exc', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    //verifies if password in req.body matches JWT token
+    const isValid = utils.validPassword(req.body.password, req.user.hash, req.user.salt);
+
+    if(isValid){
+        //removes user from db
+
+        var params = {
+            TableName: 'SNROOT',
+            Key: {
+                PKEY: req.user.PKEY,
+                SKEY: req.user.SKEY
+            }
+        }
+        docClient.delete(params, function(err, data){
+            if(err){
+                return res.status(500).json({success: false, msg: 'Could not remove user from database'});
+            }else{
+                return res.status(200).json({success: true, msg: 'User removed successfully'});
+            }
+        })
+
+
+    } else {
+        return res.status(400).json({success: false, msg: 'Invalid password'});
+    }
+
+    
+});
+
 module.exports.router = router;
 
 port = 3000
