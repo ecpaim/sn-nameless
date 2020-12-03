@@ -54,7 +54,9 @@ function genPassword(password) {
     given a user, creates (issues) a JWT
 */
 function issueJWT(user) {
-  const _id = user._id;
+
+  const _id = user.PKEY.substring(5); // removes 'USER#'
+  //console.log('ID: ' + _id);
 
   const expiresIn = '1d';
 
