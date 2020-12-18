@@ -7,6 +7,13 @@ const cors = require('cors');
 const axios = require('axios');
 const {nanoid} = require('nanoid');
 
+var BusBoy = require('busboy'); // all that to read incoming files
+const path = require('path');
+const crypto = require('crypto');
+const os = require('os');
+const fs = require('fs');
+
+
 const router = express.Router(); // to add /api prefix
 
 const utils = require('./util/hash-and-token');
@@ -55,10 +62,10 @@ axios.post(
             downloadUrl: data.downloadUrl,
             recommendedPartSize: data.recommendedPartSize
         }
-        //console.log(credentials);
+        console.log(credentials);
     })
     .catch(function (err) {
-        console.log(err);  // an error occurred
+       return console.log(err);  // an error occurred
 });
 
 
@@ -225,7 +232,7 @@ router.post('/signup', (req,res) => {
     
 });
 
-// PROTECTED ROUTE, FOR TESTING PORPOUSES
+// PROTECTED ROUTE, FOR TESTING PURPOSES
 // we need {session: false} because jwt doesnt use sessions
 router.get('/protected', passport.authenticate('jwt', {session:false}), (req,res) =>{
     
@@ -322,23 +329,220 @@ router.post('/excpst', passport.authenticate('jwt', {session:false}), (req,res) 
 });
 
 // upload image to backblaze. IDK if the filestream is slow or their servers, but this takes avg 8s to answer
-router.post('/upimg',  (req,res) => {
-
-
-    var BusBoy = require('busboy');
-    const path = require('path');
-    const crypto = require('crypto');
-    const os = require('os');
-    const fs = require('fs');
+router.post('/upimg', passport.authenticate('jwt', {session:false}), (req,res) => {
 
 
     var busboy = new BusBoy({ headers: req.headers});
 
     // console.log(req.headers['content-type']);
-    // req.on('data', function(d) {
-    //     console.dir(''+d);
-    // });
-    console.log('content legnth: '+ req.headers['content-length'])
+    // req.on('data', function(d) { console.dir(''+d); });
+    
+    let imageFileName;
+    let imageToBeUploaded = {};
+    let numberOfImages = 1; // overkill, will be useful if we upload more than one img
+    let description;
+    let readDescription = false;
+    let timestamp;
+    let readTimestamp = false;
+
+    //   busboy parses incoming HTML form data
+    busboy.on('field', (fieldName, value) => { // reads post description
+        if(fieldName === 'description'){
+            console.log("READ DESCRIPTION: ");
+            console.log(value);
+            description = value;
+            readDescription = true;
+        }else if(fieldName === 'timestamp'){
+            console.log("READ TIMESTAMP: ");
+            console.log(value);
+            timestamp = value;
+            readTimestamp = true;
+        } else {
+            console.log("DIFFERENT FIELD IDK");
+            console.log(fieldName);
+        }
+    });
+
+    //console.log(postData); //wont work, busboy.on is async
+
+    busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
+        console.log("ENTERED ON.FILE");
+        if(mimetype !== 'image/jpeg' && mimetype !== 'image/png' && mimetype !== 'image/jpg') {
+            return res.status(400).json({ error: 'Wrong file type submitted' });
+        }
+
+        // console.log('fieldname: '+ fieldname);
+        // console.log('filename: '+ filename);
+        // console.log('mimetype: '+ mimetype);
+
+        //get extension of image type
+        const imageExtension = filename.split('.')[filename.split('.').length -1];
+        //example 345658476847684678.png
+        imageFileName = `public-${nanoid()}.${imageExtension}`;
+
+        const filepath = path.join(os.tmpdir(), imageFileName);
+        console.log(filepath);
+        imageToBeUploaded = { filepath, mimetype };
+
+        //creates the file
+        let fstream = fs.createWriteStream(filepath)
+        file.pipe(fstream);
+
+        fstream.on('finish', () => {
+            numberOfImages = numberOfImages - 1;
+            if( numberOfImages === 0){
+                try {
+                    var stats = fs.statSync(imageToBeUploaded.filepath);
+                  }
+                  catch(err) {
+                    return res.status(500).json({success: false, msg: "Server could not receive file."});
+                  }
+              
+                console.log('File Size in Bytes: ' + stats.size);
+                console.log('path: ' + imageToBeUploaded.filepath);
+
+                axios.post( credentials.apiUrl + '/b2api/v1/b2_get_upload_url', {bucketId: BUCKETID }, { headers: { Authorization: credentials.authorizationToken } })
+                    .then( (response) => {
+                        console.log(response.data.uploadUrl);
+                        var uploadUrl = response.data.uploadUrl;
+                        var uploadAuthorizationToken = response.data.authorizationToken;
+                        var source = fs.readFileSync(filepath);
+                
+                        var sha1 = crypto.createHash('sha1').update(source).digest("hex");
+                    
+                        axios.post( uploadUrl, source,
+                                    {headers: {
+                                        Authorization: uploadAuthorizationToken,
+                                        "X-Bz-File-Name": imageFileName,
+                                        "Content-Type": "b2/x-auto",
+                                        "Content-Length": stats.size + 40, // size of file + "When sending the SHA1 checksum at the end, the Content-Length should be set to the size of the file plus the 40 bytes of hex checksum."
+                                        "X-Bz-Content-Sha1": sha1,
+                                        "X-Bz-Info-Author": "unknown"
+                                    }}
+                        ).then( (response) => {
+                            console.log(response.data);
+                            
+                            while(readDescription === false || readTimestamp === false){
+                                continue;
+                            }
+                            let newPost = {
+                                PKEY: req.user.PKEY,
+                                SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + timestamp,
+                                timestamp: timestamp,
+                                description: description,
+                                imgUrl: credentials.downloadUrl + '/file/SNpics/' + response.data.fileName,
+                                nComments: 0,
+                                nLikes: 0,
+                                nGifts: 0,
+                                lastComment: {}
+                            };
+
+                            var params = {
+                                TableName: "SNROOT",
+                                Item: newPost,
+                                ConditionExpression: "attribute_not_exists(SKEY)"
+                            };
+                            
+                            docClient.put(params, function(err, data) {
+                                if(err){
+                                    // will have to delete the picture...
+                                    res.status(500).json({success: false, msg: 'Could not add post to db'});
+                                } else {
+                                    res.status(200).json({
+                                        success: true, 
+                                        msg: 'Post created successfully', 
+                                        post: {
+                                            timestamp: newPost.timestamp,
+                                            description: newPost.description,
+                                            imgUrl: newPost.imgUrl,
+                                            nComments: 0,
+                                            nLikes: 0,
+                                            nGifts: 0,
+                                            lastComment: {}
+                                        }});
+                                }
+                            });
+
+                        }).catch((err) => {
+                            res.status(500).json({success: false, msg: "Error uploading file to bucket."});
+                        });
+                    })
+                    .catch(function (err) {
+                        res.status(500).json({success: false, msg: "Error getting upload url."});
+                    });
+
+            }
+        });
+    });
+
+    // "However if you're writing a file stream to disk, it's possible for the file stream
+    //  to still have the last chunk(s) of data still buffered in memory" 
+    //busboy.on('finish', () => {    });
+
+    return req.pipe(busboy); //close the request, use Rawbody with cloud functions
+});
+
+
+// just for tests
+router.post('/upimg2',  (req,res) => {
+    const path = require('path');
+    const crypto = require('crypto');
+    const os = require('os');
+    const fs = require('fs');
+
+    imageToBeUploaded = { filepath: "./DEBUG/cd.jpg"}
+    try {
+        var stats = fs.statSync(imageToBeUploaded.filepath);
+      }
+    catch(err) {
+        console.log(err);
+        return res.status(500).json({success: false, msg: "Server could not receive file."});
+    }
+  
+    console.log('File Size in Bytes: ' + stats.size);
+    console.log('path: ' + imageToBeUploaded.filepath);
+
+    axios.post( credentials.apiUrl + '/b2api/v1/b2_get_upload_url', {bucketId: BUCKETID }, { headers: { Authorization: credentials.authorizationToken } })
+        .then( (response) => {
+            
+            var uploadUrl = response.data.uploadUrl;
+            var uploadAuthorizationToken = response.data.authorizationToken;
+            var source = fs.readFileSync(imageToBeUploaded.filepath);
+    
+            var sha1 = crypto.createHash('sha1').update(source).digest("hex");
+        
+            axios.post( uploadUrl, source,
+                        {headers: {
+                            Authorization: uploadAuthorizationToken,
+                            "X-Bz-File-Name": 'public-test.jpg',
+                            "Content-Type": "b2/x-auto",
+                            "Content-Length": stats.size + 40, // size of file + "When sending the SHA1 checksum at the end, the Content-Length should be set to the size of the file plus the 40 bytes of hex checksum."
+                            "X-Bz-Content-Sha1": sha1,
+                            "X-Bz-Info-Author": "unknown"
+                        }}
+            ).then( (response) => {
+                res.status(200).json({success: true, msg: "image uploaded."});
+
+            }).catch((err) => {
+                console.error(err);
+                res.status(500).json({success: false, msg: "Error uploading file to bucket."});
+            });
+        })
+        .catch(function (err) {
+            console.log(err);
+            res.status(500).json({success: false, msg: "Error getting upload url."});
+        });
+});
+
+// upload image to backblaze. IDK if the filestream is slow or their servers, but this takes avg 8s to answer
+router.post('/deleteimg',  (req,res) => {
+
+
+    var busboy = new BusBoy({ headers: req.headers});
+
+    // console.log(req.headers['content-type']);
+    // req.on('data', function(d) { console.dir(''+d);});
+
     
     let imageFileName;
     let imageToBeUploaded = {};
@@ -425,57 +629,6 @@ router.post('/upimg',  (req,res) => {
     return req.pipe(busboy);
 });
 
-
-// just for tests
-router.post('/upimg2',  (req,res) => {
-    const path = require('path');
-    const crypto = require('crypto');
-    const os = require('os');
-    const fs = require('fs');
-
-    imageToBeUploaded = { filepath: "./DEBUG/cd.jpg"}
-    try {
-        var stats = fs.statSync(imageToBeUploaded.filepath);
-      }
-    catch(err) {
-        console.log(err);
-        return res.status(500).json({success: false, msg: "Server could not receive file."});
-    }
-  
-    console.log('File Size in Bytes: ' + stats.size);
-    console.log('path: ' + imageToBeUploaded.filepath);
-
-    axios.post( credentials.apiUrl + '/b2api/v1/b2_get_upload_url', {bucketId: BUCKETID }, { headers: { Authorization: credentials.authorizationToken } })
-        .then( (response) => {
-            
-            var uploadUrl = response.data.uploadUrl;
-            var uploadAuthorizationToken = response.data.authorizationToken;
-            var source = fs.readFileSync(imageToBeUploaded.filepath);
-    
-            var sha1 = crypto.createHash('sha1').update(source).digest("hex");
-        
-            axios.post( uploadUrl, source,
-                        {headers: {
-                            Authorization: uploadAuthorizationToken,
-                            "X-Bz-File-Name": 'public-test.jpg',
-                            "Content-Type": "b2/x-auto",
-                            "Content-Length": stats.size + 40, // size of file + "When sending the SHA1 checksum at the end, the Content-Length should be set to the size of the file plus the 40 bytes of hex checksum."
-                            "X-Bz-Content-Sha1": sha1,
-                            "X-Bz-Info-Author": "unknown"
-                        }}
-            ).then( (response) => {
-                res.status(200).json({success: true, msg: "image uploaded."});
-
-            }).catch((err) => {
-                console.error(err);
-                res.status(500).json({success: false, msg: "Error uploading file to bucket."});
-            });
-        })
-        .catch(function (err) {
-            console.log(err);
-            res.status(500).json({success: false, msg: "Error getting upload url."});
-        });
-});
 
 module.exports.router = router;
 
