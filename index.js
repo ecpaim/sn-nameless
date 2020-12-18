@@ -65,7 +65,7 @@ axios.post(
         console.log(credentials);
     })
     .catch(function (err) {
-       return console.log(err);  // an error occurred
+       return console.log(err); 
 });
 
 
@@ -84,7 +84,6 @@ router.post('/login', (req,res) => {
     }
   
     if(email){
-        // will be replaced by a db call
 
         var params = {
             TableName: "SNROOT",
@@ -125,7 +124,6 @@ router.post('/login', (req,res) => {
 
     }
     else{
-        // will be replaced by a db call
         var params = {
             TableName : "SNROOT",
             Key: {
@@ -216,7 +214,6 @@ router.post('/signup', (req,res) => {
                         return res.status(400).json({errors, success: false});
 
                     } else {
-                        //console.log("User successfully added to the database:", JSON.stringify(data, null, 2));
 
                         const token = utils.issueJWT(newUser)
                         
@@ -604,7 +601,6 @@ router.post('/deleteimg',  (req,res) => {
                                         "X-Bz-Info-Author": "unknown"
                                     }}
                         ).then( (response) => {
-                            //console.log(response);
                             res.status(200).json({success: true, msg: "image uploaded."});
 
                         }).catch((err) => {
