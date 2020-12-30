@@ -282,7 +282,7 @@ describe("General tests", function() {
         .end(done);
     });
 
-    it('creating post successfully', function(done) {
+    it('creating post without image successfully', function(done) {
         
         request(app)
         .post('/api/pst')
@@ -297,7 +297,7 @@ describe("General tests", function() {
         .end(done);
     });
 
-    it('removing post successfully', function(done) {
+    it('removing post without image successfully', function(done) {
         
         request(app)
         .post('/api/excpst')
