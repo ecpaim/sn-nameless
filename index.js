@@ -77,7 +77,7 @@ router.get('/', (req,res) =>{
 // LOGIN PAGE
 router.post('/login', (req,res) => {
 
-    // just checks if fields are not empty or bad written
+    // just checks if fields are not empty or badly written
     const {errors, valid, email} = validateLoginData(req.body);
     if(!valid){
         return res.status(400).json({errors: errors, success: false});
@@ -269,7 +269,7 @@ router.post('/exc', passport.authenticate('jwt', {session:false}), (req,res) =>{
 });
 
 /* 
-    creates a post with fields:
+    creates a post WITHOUT IMAGES with fields:
         timestamp: time post was sent
         description: the text
         numberComments:
@@ -282,6 +282,7 @@ router.post('/pst', passport.authenticate('jwt', {session:false}), (req,res) =>{
     const newPost = {
         PKEY: req.user.PKEY,
         SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + req.body.timestamp,
+        feed: req.body.feed,
         timestamp: req.body.timestamp,
         description: req.body.description,
         nComments: 0,
@@ -354,6 +355,8 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
     let readDescription = false;
     let timestamp;
     let readTimestamp = false;
+    let feed;
+    let readFeed = false;
 
     //   busboy parses incoming HTML form data
     busboy.on('field', (fieldName, value) => { // reads post description
@@ -367,11 +370,17 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
             console.log(value);
             timestamp = validateText(value);
             readTimestamp = true;
+        } if(fieldName === 'feed'){
+            console.log("READ FEED: ");
+            console.log(value);
+            feed = validateText(value);
+            readFeed= true;
         } else {
             console.log("DIFFERENT FIELD IDK");
             console.log(fieldName);
         }
     });
+
 
     //console.log(postData); //wont work, busboy.on is async
 
@@ -435,12 +444,13 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
 
                                 console.log(response.data);
                                 
-                                while(readDescription === false || readTimestamp === false){
+                                while(readDescription === false || readTimestamp === false || readFeed === false){
                                     continue;
                                 }
                                 let newPost = {
                                     PKEY: req.user.PKEY,
                                     SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + timestamp,
+                                    feed: feed,
                                     timestamp: timestamp,
                                     description: description,
                                     imgUrl: credentials.downloadUrl + '/file/SNpics/' + response.data.fileName,
@@ -504,6 +514,7 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
                                         let newPost = {
                                             PKEY: req.user.PKEY,
                                             SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + timestamp,
+                                            feed: feed,
                                             timestamp: timestamp,
                                             description: description,
                                             imgUrl: credentials.downloadUrl + '/file/SNpics/' + response.data.fileName,
@@ -563,56 +574,54 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
     return req.pipe(busboy); //close the request, use Rawbody with cloud functions
 });
 
-
-// just for tests
-router.post('/upimg2',  (req,res) => {
-    const path = require('path');
-    const crypto = require('crypto');
-    const os = require('os');
-    const fs = require('fs');
-
-    imageToBeUploaded = { filepath: "./DEBUG/cd.jpg"}
-    try {
-        var stats = fs.statSync(imageToBeUploaded.filepath);
-      }
-    catch(err) {
-        console.log(err);
-        return res.status(500).json({success: false, msg: "Server could not receive file."});
-    }
-  
-    console.log('File Size in Bytes: ' + stats.size);
-    console.log('path: ' + imageToBeUploaded.filepath);
-
-    axios.post( credentials.apiUrl + '/b2api/v1/b2_get_upload_url', {bucketId: BUCKETID }, { headers: { Authorization: credentials.authorizationToken } })
-        .then( (response) => {
-            
-            var uploadUrl = response.data.uploadUrl;
-            var uploadAuthorizationToken = response.data.authorizationToken;
-            var source = fs.readFileSync(imageToBeUploaded.filepath);
+// gets all posts in the database
+router.get('/mainfeed',  (req,res) =>{
     
-            var sha1 = crypto.createHash('sha1').update(source).digest("hex");
-        
-            axios.post( uploadUrl, source,
-                        {headers: {
-                            Authorization: uploadAuthorizationToken,
-                            "X-Bz-File-Name": 'public-test.jpg',
-                            "Content-Type": "b2/x-auto",
-                            "Content-Length": stats.size + 40, // size of file + "When sending the SHA1 checksum at the end, the Content-Length should be set to the size of the file plus the 40 bytes of hex checksum."
-                            "X-Bz-Content-Sha1": sha1,
-                            "X-Bz-Info-Author": "unknown"
-                        }}
-            ).then( (response) => {
-                res.status(200).json({success: true, msg: "image uploaded."});
+    var params = {
+        TableName: "SNROOT",
+        IndexName: "feed-index",
+        KeyConditionExpression: "feed = :arg1",
+        ExpressionAttributeValues:{
+            ":arg1": 'MAIN'
+        }
+    };
 
-            }).catch((err) => {
-                console.error(err);
-                res.status(500).json({success: false, msg: "Error uploading file to bucket."});
-            });
-        })
-        .catch(function (err) {
+    docClient.query(params, function(err,data) {
+        if(err){
             console.log(err);
-            res.status(500).json({success: false, msg: "Error getting upload url."});
-        });
+            return res.status(500).json({success: false, msg: 'Could not retrieve posts'});
+        } else {
+            let posts = [];
+            data.Items.forEach( function(item) {
+                if(item.imgUrl){
+                    posts.push({
+                        id: item.SKEY,
+                        username: item.PKEY.substring(5),
+                        timestamp: item.timestamp,
+                        description: item.description,
+                        imgUrl: item.imgUrl,
+                        nComments: item.nComments,
+                        nLikes: item.nLikes,
+                        nGifts: item.nGifts,
+                        lastComment: item.lastComment
+                    });
+                } else {
+                    posts.push({
+                        id: item.SKEY,
+                        username: item.PKEY.substring(5),
+                        timestamp: item.timestamp,
+                        description: item.description,
+                        nComments: item.nComments,
+                        nLikes: item.nLikes,
+                        nGifts: item.nGifts,
+                        lastComment: item.lastComment
+                    });
+                }
+            });
+            return res.json(posts);
+
+        }
+    });
 });
 
 // removes post from dynamo then removes image from blackbaze
