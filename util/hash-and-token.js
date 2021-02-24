@@ -58,7 +58,7 @@ function issueJWT(user) {
   const _id = user.PKEY.substring(5); // removes 'USER#'
   //console.log('ID: ' + _id);
 
-  const expiresIn = '1d';
+  const expiresIn = '7d';
 
   const payload = {
     sub: _id,
