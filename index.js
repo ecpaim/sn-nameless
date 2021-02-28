@@ -198,7 +198,8 @@ router.post('/signup', (req,res) => {
                     SKEY: '#METADATA#' + req.body.username.trim(),
                     email: req.body.email.trim(),
                     hash: hash,
-                    salt: salt
+                    salt: salt,
+                    profilePic:''
                 };
 
                 var params = {
@@ -264,8 +265,7 @@ router.post('/exc', passport.authenticate('jwt', {session:false}), (req,res) =>{
     } else {
         return res.status(400).json({success: false, msg: 'Invalid password'});
     }
-
-    
+ 
 });
 
 /* 
@@ -695,6 +695,185 @@ router.post('/dltpst', passport.authenticate('jwt', {session:false}), (req,res) 
 
 });
 
+// gets user info
+router.get('/user', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+
+
+    var params = {
+        TableName: 'SNROOT',
+        Key: {
+            PKEY: req.user.PKEY,
+            SKEY: req.user.SKEY
+        }
+    }
+    docClient.get(params, function(err, data){
+            if(err){
+                return res.status(500).json({success: false, msg: 'Could not retrieve user info'});
+            }else{
+                return res.status(200).json({username: data.Item.PKEY.substring(5), email: data.Item.email, profilePic: data.Item.profilePic});
+            }
+        })
+});
+
+// change profile picture
+router.post('/changeprofilepic', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    var busboy = new BusBoy({ headers: req.headers});
+
+    let imageFileName;
+    let timestamp;
+    let readTimestamp = false;
+
+    //   busboy parses incoming HTML form data
+    busboy.on('field', (fieldName, value) => { // reads post description
+        if(fieldName === 'timestamp'){
+            console.log("READ TIMESTAMP: ");
+            console.log(value);
+            timestamp = validateText(value);
+            readTimestamp = true;
+        } else {
+            console.log("DIFFERENT FIELD IDK");
+            console.log(fieldName);
+        }
+    });
+
+    busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
+        console.log("ENTERED ON.FILE");
+        if(mimetype !== 'image/jpeg' && mimetype !== 'image/png' && mimetype !== 'image/jpg') {
+            return res.status(400).json({ error: 'Wrong file type submitted' });
+        }
+
+         //get extension of image type
+         const imageExtension = filename.split('.')[filename.split('.').length -1];
+         imageFileName = `public-${nanoid()}.${imageExtension}`;
+ 
+         const filepath = path.join(os.tmpdir(), imageFileName);
+         imageToBeUploaded = { filepath, mimetype };
+ 
+         //creates the file
+         let fstream = fs.createWriteStream(filepath)
+         file.pipe(fstream);
+
+         fstream.on('finish', () => {
+       
+            try {
+                var stats = fs.statSync(imageToBeUploaded.filepath);
+            } catch(err) {
+                return res.status(500).json({success: false, msg: "Server could not receive file."});
+            } 
+
+            axios.post( credentials.apiUrl + '/b2api/v1/b2_get_upload_url', {bucketId: BUCKETID }, { headers: { Authorization: credentials.authorizationToken } })
+                .then( (response) => {
+                    var uploadUrl = response.data.uploadUrl;
+                    var uploadAuthorizationToken = response.data.authorizationToken;
+                    var source = fs.readFileSync(filepath); 
+
+                    var sha1 = crypto.createHash('sha1').update(source).digest("hex");
+                        
+                    axios.post( uploadUrl, source,
+                        {headers: {
+                                    Authorization: uploadAuthorizationToken,
+                                    "X-Bz-File-Name": imageFileName,
+                                    "Content-Type": "b2/x-auto",
+                                    "Content-Length": stats.size + 40, // size of file + "When sending the SHA1 checksum at the end, the Content-Length should be set to the size of the file plus the 40 bytes of hex checksum."
+                                    "X-Bz-Content-Sha1": sha1,
+                                    "X-Bz-Info-Author": "unknown"
+                                }}
+                        ).then((response) => {
+
+                            while(readTimestamp === false){
+                                continue;
+                            }
+                            console.log('adding img to dynamo...');
+                            
+                            let profileUrl = credentials.downloadUrl + '/file/SNpics/' + response.data.fileName;
+                            var params = {
+                                TableName: 'SNROOT',
+                                Key: {
+                                    PKEY: req.user.PKEY,
+                                    SKEY: req.user.SKEY
+                                },
+                                UpdateExpression: 'set profilePic = :arg1',
+                                ExpressionAttributeValues: {
+                                    ':arg1': profileUrl,
+                                },
+                                ReturnValues:"UPDATED_NEW"
+                            };
+                            
+                            docClient.update(params, function(err, data){
+                                    if(err){
+                                        return res.status(500).json({success: false, msg: 'Could not add image to database'});
+                                    }else{
+                                        return res.status(200).json({success:true, msg:'profile picture updated successfully.', profilePic: profileUrl});
+                                    }
+                            });
+
+                        }).catch((err) => {
+                            // this is a little messy. Basically we copy the code again because b2 may fail on the first try.
+                            axios.post( credentials.apiUrl + '/b2api/v1/b2_get_upload_url', {bucketId: BUCKETID }, { headers: { Authorization: credentials.authorizationToken } })
+                                .then( (response) => {
+                                    var uploadUrl = response.data.uploadUrl;
+                                    var uploadAuthorizationToken = response.data.authorizationToken;
+                                    var source = fs.readFileSync(filepath); 
+
+                                    var sha1 = crypto.createHash('sha1').update(source).digest("hex");
+                                        
+                                    axios.post( uploadUrl, source,
+                                        {headers: {
+                                                    Authorization: uploadAuthorizationToken,
+                                                    "X-Bz-File-Name": imageFileName,
+                                                    "Content-Type": "b2/x-auto",
+                                                    "Content-Length": stats.size + 40, // size of file + "When sending the SHA1 checksum at the end, the Content-Length should be set to the size of the file plus the 40 bytes of hex checksum."
+                                                    "X-Bz-Content-Sha1": sha1,
+                                                    "X-Bz-Info-Author": "unknown"
+                                                }}
+                                        ).then((response) => {
+
+                                            let profileUrl = credentials.downloadUrl + '/file/SNpics/' + response.data.fileName;
+                                            var params = {
+                                                TableName: 'SNROOT',
+                                                Key: {
+                                                    PKEY: req.user.PKEY,
+                                                    SKEY: req.user.SKEY
+                                                },
+                                                UpdateExpression: 'set profilePic = :arg1',
+                                                ExpressionAttributeValues: {
+                                                    ':arg1': profileUrl,
+                                                },
+                                                ReturnValues:"UPDATED_NEW"
+                                            };
+
+                                            docClient.update(params, function(err, data){
+                                                    if(err){
+                                                        return res.status(500).json({success: false, msg: 'Could not add image url to database'});
+                                                    }else{
+                                                        return res.status(200).json({success:true, msg:'profile picture updated successfully.'});
+                                                    }
+                                            });
+
+                                        }).catch((err) => {
+                                            return res.status(500).json({success: false, msg: 'Could not add image to database'});
+                                        });
+                                })
+                                .catch((err)=>{
+                                    return res.status(500).json({success: false, msg: "Could not get second upload url", profilePic: profileUrl});
+                                });
+
+                        });
+
+                })
+                .catch((err)=>{
+                    return res.status(500).json({success: false, msg: "Could not get first upload url"});
+                });
+                               
+
+
+        });
+    });
+
+    return req.pipe(busboy);
+});
 
 module.exports.router = router;
 
