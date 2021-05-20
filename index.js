@@ -1048,7 +1048,6 @@ router.post('/reactpost', passport.authenticate('jwt', {session:false}), (req,re
 });
 
 // get all notifications
-
 router.get('/notif', passport.authenticate('jwt', {session:false}), (req,res) =>{
 
     var params = {
