@@ -13,7 +13,6 @@ const crypto = require('crypto');
 const os = require('os');
 const fs = require('fs');
 
-
 const router = express.Router(); // to add /api prefix
 
 const utils = require('./util/hash-and-token');
@@ -696,24 +695,41 @@ router.post('/dltpst', passport.authenticate('jwt', {session:false}), (req,res) 
 });
 
 // gets user info
+// maybe refactor to get user likes and posts?
+
 router.get('/user', passport.authenticate('jwt', {session:false}), (req,res) =>{
 
 
 
     var params = {
         TableName: 'SNROOT',
+        KeyConditionExpression: 'PKEY = :arg0',
+        ExpressionAttributeValues:{
+            ':arg0': 'REACTION#' + req.user.PKEY.substring(5),
+        }
+    }
+    var params2 = {
+        TableName: 'SNROOT',
         Key: {
             PKEY: req.user.PKEY,
             SKEY: req.user.SKEY
         }
     }
-    docClient.get(params, function(err, data){
-            if(err){
-                return res.status(500).json({success: false, msg: 'Could not retrieve user info'});
-            }else{
-                return res.status(200).json({username: data.Item.PKEY.substring(5), email: data.Item.email, profilePic: data.Item.profilePic});
-            }
-        })
+   
+    Promise.all([ docClient.query(params).promise(), docClient.get(params2).promise() ])
+        .then( values => {
+
+            return res.status(200).json({ 
+                likes: values[0]['Items'], 
+                username: values[1]['Item'].PKEY.substring(5),
+                email: values[1]['Item'].email,
+                profilePic: values[1]['Item'].profilePic
+                });
+
+        }).catch(errors => {
+            console.log(errors);
+            return res.status(500).json({success: false, msg: 'could not get info'});
+        });
 });
 
 // change profile picture
@@ -873,6 +889,187 @@ router.post('/changeprofilepic', passport.authenticate('jwt', {session:false}), 
     });
 
     return req.pipe(busboy);
+});
+
+
+/*
+router.post('/reactpost', passport.authenticate('jwt', {session:false}), (req,res) =>{
+    const newReaction = {
+        PKEY: 'REACTION#' + req.user.PKEY.substring(5),
+        SKEY: req.body.id,
+        type: req.body.type,
+        timestamp: req.body.timestamp,
+        hidden: req.body.hidden
+    };
+
+    const newNotification = {
+        PKEY: 'USER#' + req.body.username,
+        SKEY: '!NOTIFICATION!' + req.body.timestamp,
+        read: boolean
+        hidden: req.body.hidden,
+        type: req.body.type,
+        from: '',
+        post: req.body.id
+    };
+    if(req.body.hidden === false){
+        newNotification.from = req.user.PKEY.substring(5);
+    }
+
+    var params = {
+        RequestItems: {
+            "SNROOT" : [
+                {
+                    PutRequest: {
+                        Item: newReaction
+                    }
+                },
+                {
+                    PutRequest: {
+                        Item: newNotification
+                    }
+                }
+            ]
+        }
+    };
+
+    docClient.batchWrite(params, function(err,data) {
+        if (err) {
+            return res.status(500).json({msg:'Could not add reaction', success: false});
+        } else {
+            var expression;
+            if(req.body.type === 'LIKE'){
+                expression = 'set nLikes = nLikes + :inc'
+            } else {
+                expression = 'set nGifts = nGifts + :inc'
+            }
+
+            params = {
+                TableName: 'SNROOT',
+                Key: {
+                    PKEY: `USER#${req.body.username}`,
+                    SKEY: req.body.id
+                },
+                UpdateExpression: expression,
+                ExpressionAttributeValues: {
+                    ':inc': 1
+                },
+                ReturnValues:"UPDATED_NEW"
+            };
+            docClient.update(params, function(err, data){
+                if(err){
+                    console.log(err);
+                    return res.status(500).json({success: false, msg: 'Could not update reaction count'});
+                }else{
+                    return res.status(200).json({success:true, msg:'reaction added successfully'});
+                }
+            });
+        }
+    });
+
+});
+*/
+// add reaction to post and creates notification
+/*
+    type: LIKE 
+    hidden: true | false
+    timestamp: string
+    id: POST#username#timestamp
+    username: post owner
+*/
+router.post('/reactpost', passport.authenticate('jwt', {session:false}), (req,res) =>{
+    const newReaction = {
+        PKEY: 'REACTION#' + req.user.PKEY.substring(5),
+        SKEY: req.body.id,
+        type: req.body.type,
+        timestamp: req.body.timestamp,
+        hidden: req.body.hidden
+    };
+
+    var params = {
+        TableName: "SNROOT",
+        Item: newReaction,
+        ConditionExpression: "attribute_not_exists(SKEY)"
+    };
+    
+    docClient.put(params, function(err, data) {
+        if(err){
+            console.log(err);
+            return res.status(500).json({success: false, msg: 'Could not add reaction'});
+        } else {
+
+            const newNotification = {
+                PKEY: 'USER#' + req.body.username,
+                SKEY: '!NOTIFICATION!' + req.body.timestamp,
+                read: false,
+                hidden: req.body.hidden,
+                type: req.body.type,
+                from: '',
+                post: req.body.id
+            };
+
+            if(req.body.hidden === false){
+                newNotification.from = req.user.PKEY.substring(5);
+            }
+
+            params = {
+                TableName: "SNROOT",
+                Item: newNotification
+            };
+
+            var expression;
+
+            req.body.type === 'LIKE' ? expression = 'set nLikes = nLikes + :inc' : expression = 'set nGifts = nGifts + :inc';
+
+            params2 = {
+                TableName: 'SNROOT',
+                Key: {
+                    PKEY: `USER#${req.body.username}`,
+                    SKEY: req.body.id
+                },
+                UpdateExpression: expression,
+                ExpressionAttributeValues: {
+                    ':inc': 1
+                },
+                ReturnValues:"UPDATED_NEW"
+            };
+
+            Promise.all([ docClient.put(params).promise(), docClient.update(params2).promise() ])
+                .then(values => {
+                    console.log(values);
+                    return res.status(200).json({success: true, msg: 'Reaction added'});
+                }).catch(errors => {
+                    console.log(errors);
+                    return res.status(200).json({success: true, msg: 'Reaction added, but notification failed'});
+                });
+        }
+    });
+    
+
+});
+
+// get all notifications
+router.get('/notif', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    var params = {
+        TableName: "SNROOT",
+        KeyConditionExpression: 'PKEY = :arg0 AND SKEY BETWEEN :arg1 AND :arg2',
+        ExpressionAttributeValues:{
+            ':arg0': req.user.PKEY,
+            ':arg1': '!NOTIFICATION!',
+            ':arg2': '!NOTIFICATION#'
+        }
+    };
+
+    docClient.query(params, function(err,data) {
+        if(err){
+            console.log(err);
+            return res.status(500).json({success: false, msg: 'Could not retrieve notifications'});
+        } else {
+            
+            return res.status(200).json(data.Items);
+
+        }
+    });
 });
 
 module.exports.router = router;
