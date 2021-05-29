@@ -281,6 +281,7 @@ router.post('/pst', passport.authenticate('jwt', {session:false}), (req,res) =>{
     const newPost = {
         PKEY: req.user.PKEY,
         SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + req.body.timestamp,
+        profilePic: req.body.profilepic,
         feed: req.body.feed,
         timestamp: req.body.timestamp,
         description: req.body.description,
@@ -356,6 +357,8 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
     let readTimestamp = false;
     let feed;
     let readFeed = false;
+    let profilepic;
+    let readProfilePic = false;
 
     //   busboy parses incoming HTML form data
     busboy.on('field', (fieldName, value) => { // reads post description
@@ -374,7 +377,12 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
             console.log(value);
             feed = validateText(value);
             readFeed= true;
-        } else {
+        } if(fieldName === 'profilepic'){
+            console.log("READ PROFILEPIC: ");
+            console.log(value);
+            profilepic = validateText(value);
+            readProfilePic = true;
+        }  else {
             console.log("DIFFERENT FIELD IDK");
             console.log(fieldName);
         }
@@ -449,6 +457,7 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
                                 let newPost = {
                                     PKEY: req.user.PKEY,
                                     SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + timestamp,
+                                    profilePic: profilepic,
                                     feed: feed,
                                     timestamp: timestamp,
                                     description: description,
@@ -468,7 +477,7 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
                                 
                                 docClient.put(params, function(err, data) {
                                     if(err){
-                                        // will have to delete the picture...
+                                        // will have to delete the picture from b2...
                                         res.status(500).json({success: false, msg: 'Could not add post to db'});
                                     } else {
                                         res.status(200).json({
@@ -513,6 +522,7 @@ router.post('/pstimg', passport.authenticate('jwt', {session:false}), (req,res) 
                                         let newPost = {
                                             PKEY: req.user.PKEY,
                                             SKEY: 'POST#' + req.user.PKEY.substring(5) + '#' + timestamp,
+                                            profilePic: profilepic,
                                             feed: feed,
                                             timestamp: timestamp,
                                             description: description,
@@ -592,10 +602,14 @@ router.get('/mainfeed',  (req,res) =>{
         } else {
             let posts = [];
             data.Items.forEach( function(item) {
+
+                let pp = item.profilePic ? item.profilePic : "";
+                let url_part = item.SKEY.split('#');
                 if(item.imgUrl){
                     posts.push({
-                        id: item.SKEY,
+                        id: '/pst/' + url_part[1] + '/' + url_part[2],
                         username: item.PKEY.substring(5),
+                        profilePic: pp,
                         timestamp: item.timestamp,
                         description: item.description,
                         imgUrl: item.imgUrl,
@@ -604,10 +618,12 @@ router.get('/mainfeed',  (req,res) =>{
                         nGifts: item.nGifts,
                         lastComment: item.lastComment
                     });
+
                 } else {
                     posts.push({
-                        id: item.SKEY,
+                        id: '/pst/' +  url_part[1] + '/' + url_part[2],
                         username: item.PKEY.substring(5),
+                        profilePic: pp,
                         timestamp: item.timestamp,
                         description: item.description,
                         nComments: item.nComments,
@@ -684,8 +700,6 @@ router.post('/dltpst', passport.authenticate('jwt', {session:false}), (req,res) 
                     
                    return res.status(500).json({success: false, msg: 'Could not delete post. Please try again!'});
                 });
-
-
             
         }
 
@@ -718,9 +732,15 @@ router.get('/user', passport.authenticate('jwt', {session:false}), (req,res) =>{
    
     Promise.all([ docClient.query(params).promise(), docClient.get(params2).promise() ])
         .then( values => {
-
+            let processed_likes = values[0]['Items'].map((item) => {
+                let url_part = item.SKEY.split('#');
+                item.id = '/pst/' +  url_part[1] + '/' + url_part[2];
+                item.PKEY = '';
+                item.SKEY = '';
+                return item;
+            });
             return res.status(200).json({ 
-                likes: values[0]['Items'], 
+                likes: processed_likes, 
                 username: values[1]['Item'].PKEY.substring(5),
                 email: values[1]['Item'].email,
                 profilePic: values[1]['Item'].profilePic
@@ -977,9 +997,15 @@ router.post('/reactpost', passport.authenticate('jwt', {session:false}), (req,re
     username: post owner
 */
 router.post('/reactpost', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    let url_parts = req.body.post.split('/');
+    
+    url_parts = 'POST#' + url_parts[2] + "#" + url_parts[3];
+
+
     const newReaction = {
         PKEY: 'REACTION#' + req.user.PKEY.substring(5),
-        SKEY: req.body.id,
+        SKEY: url_parts,
         type: req.body.type,
         timestamp: req.body.timestamp,
         hidden: req.body.hidden
@@ -1065,9 +1091,181 @@ router.get('/notif', passport.authenticate('jwt', {session:false}), (req,res) =>
             console.log(err);
             return res.status(500).json({success: false, msg: 'Could not retrieve notifications'});
         } else {
-            
-            return res.status(200).json(data.Items);
 
+            let posts = [];
+            data.Items.forEach( function(item) {
+
+                posts.unshift({
+                    id: item.SKEY.substring(14),
+                    from: item.from,
+                    hidden: item.hidden,
+                    post: item.post,
+                    read: item.read,
+                    type: item.type     
+                });
+            });
+            
+            return res.status(200).json(posts);
+
+        }
+    });
+});
+
+router.post('/readNotif', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    var params = {
+        TableName: "SNROOT",
+        Key: {
+            PKEY: req.user.PKEY,
+            SKEY: '!NOTIFICATION!' + req.body.id,
+        },
+        UpdateExpression: "set #r = :b",
+        ExpressionAttributeValues:{
+            ":b" : true
+        },
+        ExpressionAttributeNames:{
+            "#r" : 'read'
+        }
+        
+    };
+    
+    docClient.update(params, function(err, data) {
+        if(err){
+            console.log(err);
+            return res.status(500).json({success: false, msg: 'Could not update notification'});
+        } else {
+            return res.status(200).json({success: true, msg: 'Notification read successfully'});
+        }
+    });
+});
+
+router.post('/pstncomm', passport.authenticate('jwt', {session:false}), (req,res) => {
+
+    var params = {
+        TableName: "SNROOT",
+        IndexName: "InvertedIndex",
+        KeyConditionExpression: 'SKEY = :postid AND  PKEY BETWEEN :comm AND :users',
+        ExpressionAttributeValues: {
+            ':postid': "POST#" + req.body.id,
+            ':comm': 'COMMENT#',
+            ':users': 'USER$'
+        }
+    }
+
+    docClient.query(params, function(err,data) {
+        if(err){
+            console.log(err);
+            return res.status(500).json({success: false, msg: 'Could not fetch post from database'});
+        } else {
+            let content = {};
+            content.likes = [];
+            content.comments = [];
+            data.Items.map(item => {
+                if(item.feed){
+                    let url_part = item.SKEY.split('#');
+                    item.id = '/pst/' +  url_part[1] + '/' + url_part[2];
+                    item.username = item.PKEY.substring(5);
+                    content.post = item;
+
+                }else if(item.type && item.type === 'LIKE'){
+                    if(item.hidden){
+                        item.from = '';
+                    } else{
+                        item.from = item.PKEY.substring(9);
+                    }
+                    content.likes.push(item);
+
+                } else if(item.comment){
+                    if(item.hidden){
+                        item.username = "";
+                        item.profilePic = "";
+                    }
+                    content.comments.push(item);
+                }
+
+                item.PKEY = '';
+                item.SKEY = '';
+            })
+            return res.status(200).json(content);
+        }
+    });
+});
+
+router.post('/cmmt', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    let url_parts = req.body.post.split('/');
+    
+    url_parts = 'POST#' + url_parts[2] + "#" + url_parts[3];
+
+    const newComment = {
+        PKEY: 'COMMENT#' + req.user.PKEY.substring(5) + '#' + req.body.timestamp,
+        SKEY: url_parts,
+        username: req.user.PKEY.substring(5),
+        profilePic: req.body.profilepic,
+        timestamp: req.body.timestamp,
+        comment: validateText(req.body.comment),
+        hidden: req.body.hidden
+    };
+
+    var params = {
+        TableName: "SNROOT",
+        Item: newComment,
+        ConditionExpression: "attribute_not_exists(SKEY)"
+    };
+    
+    docClient.put(params, function(err, data) {
+        if(err){
+            return res.status(500).json({success: false, msg: 'Could not create comment'});
+        } else {
+
+            let username = req.body.post.split('/');
+            
+            username = username[2];
+        
+            const newNotification = {
+                PKEY: 'USER#' + username,
+                SKEY: '!NOTIFICATION!' + req.body.timestamp,
+                read: false,
+                hidden: req.body.hidden,
+                type: 'COMMENT',
+                from: '',
+                post: req.body.post
+            };
+
+            if(req.body.hidden === false){
+                newNotification.from = req.user.PKEY.substring(5);
+            }
+
+            params = {
+                TableName: "SNROOT",
+                Item: newNotification
+            };
+
+            var expression;
+
+            req.body.type === 'LIKE' ? expression = 'set nLikes = nLikes + :inc' : expression = 'set nComments = nComments + :inc';
+
+            params2 = {
+                TableName: 'SNROOT',
+                Key: {
+                    PKEY: `USER#${username}`,
+                    SKEY: url_parts
+                },
+                UpdateExpression: expression,
+                ExpressionAttributeValues: {
+                    ':inc': 1
+                },
+                ReturnValues:"UPDATED_NEW"
+            };
+
+            Promise.all([ docClient.put(params).promise(), docClient.update(params2).promise() ])
+                .then(values => {
+                    console.log(values);
+                    return res.status(200).json({success: true, msg: 'Reaction added'});
+                }).catch(errors => {
+                    console.log(errors);
+                    return res.status(200).json({success: true, msg: 'Reaction added, but notification failed'});
+                });
         }
     });
 });
