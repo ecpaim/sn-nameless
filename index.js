@@ -1270,6 +1270,227 @@ router.post('/cmmt', passport.authenticate('jwt', {session:false}), (req,res) =>
     });
 });
 
+/*
+message:
+    PK: USER#username
+    SK: MESSAGE#username#timestamp
+    text: content
+    timestamp: time
+    from: username
+    to: username
+    profilePic: url
+*/
+router.post('/mess', passport.authenticate('jwt', { session: false}), (req,res) => {
+
+    let to = validateText(req.body.to);
+    let timestamp = req.body.timestamp;
+    let newMessage = {
+        PKEY: req.user.PKEY,
+        SKEY: 'MESSAGE#' + to + '#' + ("00000000000000" + timestamp).slice(-14),
+        text: validateText(req.body.text),
+        timestamp: timestamp,
+        from: req.user.PKEY.substring(5),
+        to: to,
+        profilePic: validateText(req.body.profilePic)
+
+    };
+
+    var params = {
+        TableName: 'SNROOT',
+        Item: newMessage
+    };
+
+    let messageNotification = { 
+        PKEY: 'USER#' + to,
+        SKEY: 'NEWMESSAGE#' + req.user.PKEY.substring(5),
+        read: false,
+        from: req.user.PKEY.substring(5)
+    };
+
+    var params2 = {
+        TableName: 'SNROOT',
+        Item: messageNotification
+    };
+
+    docClient.put(params, (err,data) => {
+        if(err){
+            return res.status(500).json({success: false, msg: 'Could not send message'});
+
+        } else {
+            docClient.put(params2, (err,data) => {
+                if(err){
+                    docClient.put(params2, (err,data) => { // tries to send notification 2 times
+                        if(err){
+                            return res.status(500).json({success: false, msg: 'Could not send notification'});
+                        } else {
+                            return res.status(200).json({success: true, msg: 'Message sent successfully'});
+                        }
+                    });
+                } else {
+                    return res.status(200).json({success: true, msg: 'Message sent successfully'});
+                }
+            });
+
+        }
+    });
+
+});
+/*
+    username: a username
+
+    retrieves 50 messages between the account and the username
+
+    TODO: refactor to retrieve only last 50
+*/
+/*
+router.post('/retrievemess', passport.authenticate('jwt', { session: false}), (req,res) => {
+
+    let username = validateText(req.body.username);
+
+    var params1 = {
+        TableName: "SNROOT",
+        KeyConditionExpression: '(PKEY = :accountid AND  SKEY BETWEEN :mess1 AND :mess2)',
+        ScanIndexForward: false,
+        Limit: 50,
+        ProjectionExpression: "#toid, #fromid, #textid, #timestampid, profilePic",
+        ExpressionAttributeNames:{
+            '#toid': 'to',
+            "#fromid": 'from',
+            '#textid': 'text',
+            '#timestampid': 'timestamp'
+        },
+        ExpressionAttributeValues: {
+            ':accountid': req.user.PKEY,
+            ':mess1': 'MESSAGE#' + username + '#',
+            ':mess2': 'MESSAGE#' + username + '$'
+        }
+    }
+
+    var params2 = {
+        TableName: "SNROOT",
+        KeyConditionExpression: '(PKEY = :userid AND  SKEY BETWEEN :mess3 AND :mess4)',
+        ScanIndexForward: false,
+        Limit: 50,
+        ProjectionExpression: "#toid, #fromid, #textid, #timestampid, profilePic",
+        ExpressionAttributeNames:{
+            '#toid': 'to',
+            "#fromid": 'from',
+            '#textid': 'text',
+            '#timestampid': 'timestamp'
+        },
+        ExpressionAttributeValues: {
+            ':userid': 'USER#' + username,
+            ':mess3': 'MESSAGE#' + req.user.PKEY.substring(5) + '#',
+            ':mess4': 'MESSAGE#' + req.user.PKEY.substring(5) + '$'
+        }
+    }
+
+    Promise.all([ docClient.query(params1).promise(), docClient.query(params2).promise() ])
+    .then(values => {
+        let ans = values[0].Items.concat(values[1].Items);
+        ans.sort((a,b) => {return a.timestamp > b.timestamp ? 1 : a.timestamp < b.timestamp ? -1 : 0});
+        return res.status(200).json(ans);
+    }).catch(errors => {
+        console.log(errors);
+        return res.status(500).json({success: false, msg: 'Failed to retrieve messages'});
+    });
+
+});
+*/
+
+/*
+    username: a username
+    timestamp: time of the latest ṕost received
+
+    retrieves latest messages between the account and the username
+
+*/
+router.post('/retrievelatestmess', passport.authenticate('jwt', { session: false}), (req,res) => {
+
+    let username = validateText(req.body.username);
+    let timestamp = req.body.timestamp + 1;
+    timestamp = ("00000000000000" + timestamp).slice(-14);
+
+    var params1 = {
+        TableName: "SNROOT",
+        KeyConditionExpression: '(PKEY = :accountid AND  (SKEY BETWEEN :mess1 AND :mess2))',
+        ScanIndexForward: false,
+        Limit: 50,
+        ProjectionExpression: "#toid, #fromid, #textid, #timestampid, profilePic",
+        ExpressionAttributeNames:{
+            '#toid': 'to',
+            "#fromid": 'from',
+            '#textid': 'text',
+            '#timestampid': 'timestamp'
+        },
+        ExpressionAttributeValues: {
+            ':accountid': req.user.PKEY,
+            ':mess1': 'MESSAGE#' + username + '#' + timestamp,
+            ':mess2': 'MESSAGE#' + username + '$'
+        }
+    }
+
+    var params2 = {
+        TableName: "SNROOT",
+        KeyConditionExpression: '(PKEY = :userid AND  SKEY BETWEEN :mess3 AND :mess4)',
+        ScanIndexForward: false,
+        Limit: 50,
+        ProjectionExpression: "#toid, #fromid, #textid, #timestampid, profilePic",
+        ExpressionAttributeNames:{
+            '#toid': 'to',
+            "#fromid": 'from',
+            '#textid': 'text',
+            '#timestampid': 'timestamp'
+        },
+        ExpressionAttributeValues: {
+            ':userid': 'USER#' + username,
+            ':mess3': 'MESSAGE#' + req.user.PKEY.substring(5) + '#' + timestamp,
+            ':mess4': 'MESSAGE#' + req.user.PKEY.substring(5) + '$'
+        }
+    }
+
+    Promise.all([ docClient.query(params1).promise(), docClient.query(params2).promise() ])
+    .then(values => {
+        let ans = values[0].Items.concat(values[1].Items);
+        ans.sort((a,b) => {return a.timestamp > b.timestamp ? 1 : a.timestamp < b.timestamp ? -1 : 0});
+        console.log('10seconds, size: '+ ans.length + ' timestamp: '+ req.body.timestamp);
+        return res.status(200).json(ans);
+    }).catch(errors => {
+        console.log(errors);
+        return res.status(500).json({success: false, msg: 'Failed to retrieve messages'});
+    });
+
+});
+
+// get all direct messages
+router.get('/getmessnotif', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    var params = {
+        TableName: "SNROOT",
+        KeyConditionExpression: 'PKEY = :arg0 AND SKEY BETWEEN :arg1 AND :arg2',
+        ExpressionAttributeValues:{
+            ':arg0': req.user.PKEY,
+            ':arg1': 'NEWMESSAGE#',
+            ':arg2': 'NEWMESSAGE$'
+        },
+        ProjectionExpression: "#fromid, #readid",
+        ExpressionAttributeNames:{
+            "#fromid": 'from',
+            '#readid': 'read'
+        },
+    };
+
+    docClient.query(params, function(err,data) {
+        if(err){
+            console.log(err);
+            return res.status(500).json({success: false, msg: 'Could not retrieve direct messages notifications'});
+        } else {
+            return res.status(200).json(data.Items);
+
+        }
+    });
+});
+
 module.exports.router = router;
 
 port = 3001
