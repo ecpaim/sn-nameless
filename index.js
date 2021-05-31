@@ -1299,12 +1299,13 @@ router.post('/mess', passport.authenticate('jwt', { session: false}), (req,res) 
         TableName: 'SNROOT',
         Item: newMessage
     };
-
+    let now = new Date();
     let messageNotification = { 
         PKEY: 'USER#' + to,
         SKEY: 'NEWMESSAGE#' + req.user.PKEY.substring(5),
         read: false,
-        from: req.user.PKEY.substring(5)
+        from: req.user.PKEY.substring(5),
+        timestamp: now.getTime()
     };
 
     var params2 = {
@@ -1473,10 +1474,11 @@ router.get('/getmessnotif', passport.authenticate('jwt', {session:false}), (req,
             ':arg1': 'NEWMESSAGE#',
             ':arg2': 'NEWMESSAGE$'
         },
-        ProjectionExpression: "#fromid, #readid",
+        ProjectionExpression: "#fromid, #readid, #timestampid",
         ExpressionAttributeNames:{
             "#fromid": 'from',
-            '#readid': 'read'
+            '#readid': 'read',
+            '#timestampid': 'timestamp'
         },
     };
 
@@ -1487,6 +1489,34 @@ router.get('/getmessnotif', passport.authenticate('jwt', {session:false}), (req,
         } else {
             return res.status(200).json(data.Items);
 
+        }
+    });
+});
+
+router.post('/readmessnotif', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    var params = {
+        TableName: "SNROOT",
+        Key: {
+            PKEY: req.user.PKEY,
+            SKEY: 'NEWMESSAGE#' + req.body.username,
+        },
+        UpdateExpression: "set #r = :b",
+        ExpressionAttributeValues:{
+            ":b" : true
+        },
+        ExpressionAttributeNames:{
+            "#r" : 'read'
+        }
+        
+    };
+    
+    docClient.update(params, function(err, data) {
+        if(err){
+            console.log(err);
+            return res.status(500).json({success: false, msg: 'Could not update message notification'});
+        } else {
+            return res.status(200).json({success: true, msg: 'Message notification read successfully'});
         }
     });
 });

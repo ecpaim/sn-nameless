@@ -125,7 +125,7 @@ aws-sdk@^2.799.0:
     xml2js "0.4.19"
 
 axios@^0.21.1:
-  version "0.21.0"
+  version "0.21.1"
   resolved "https://registry.yarnpkg.com/axios/-/axios-0.21.0.tgz#26df088803a2350dff2c27f96fef99fe49442aca"
   integrity sha512-fmkJBknJKoZwem3/IKSSLpkdNXZeBu5Q7GA/aRsr2btgrptmSCxi2oFjZHqGdK9DoTil9PIHlPIZw2EcRJXRvw==
   dependencies:
