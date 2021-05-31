@@ -1336,68 +1336,6 @@ router.post('/mess', passport.authenticate('jwt', { session: false}), (req,res) 
     });
 
 });
-/*
-    username: a username
-
-    retrieves 50 messages between the account and the username
-
-    TODO: refactor to retrieve only last 50
-*/
-/*
-router.post('/retrievemess', passport.authenticate('jwt', { session: false}), (req,res) => {
-
-    let username = validateText(req.body.username);
-
-    var params1 = {
-        TableName: "SNROOT",
-        KeyConditionExpression: '(PKEY = :accountid AND  SKEY BETWEEN :mess1 AND :mess2)',
-        ScanIndexForward: false,
-        Limit: 50,
-        ProjectionExpression: "#toid, #fromid, #textid, #timestampid, profilePic",
-        ExpressionAttributeNames:{
-            '#toid': 'to',
-            "#fromid": 'from',
-            '#textid': 'text',
-            '#timestampid': 'timestamp'
-        },
-        ExpressionAttributeValues: {
-            ':accountid': req.user.PKEY,
-            ':mess1': 'MESSAGE#' + username + '#',
-            ':mess2': 'MESSAGE#' + username + '$'
-        }
-    }
-
-    var params2 = {
-        TableName: "SNROOT",
-        KeyConditionExpression: '(PKEY = :userid AND  SKEY BETWEEN :mess3 AND :mess4)',
-        ScanIndexForward: false,
-        Limit: 50,
-        ProjectionExpression: "#toid, #fromid, #textid, #timestampid, profilePic",
-        ExpressionAttributeNames:{
-            '#toid': 'to',
-            "#fromid": 'from',
-            '#textid': 'text',
-            '#timestampid': 'timestamp'
-        },
-        ExpressionAttributeValues: {
-            ':userid': 'USER#' + username,
-            ':mess3': 'MESSAGE#' + req.user.PKEY.substring(5) + '#',
-            ':mess4': 'MESSAGE#' + req.user.PKEY.substring(5) + '$'
-        }
-    }
-
-    Promise.all([ docClient.query(params1).promise(), docClient.query(params2).promise() ])
-    .then(values => {
-        let ans = values[0].Items.concat(values[1].Items);
-        ans.sort((a,b) => {return a.timestamp > b.timestamp ? 1 : a.timestamp < b.timestamp ? -1 : 0});
-        return res.status(200).json(ans);
-    }).catch(errors => {
-        console.log(errors);
-        return res.status(500).json({success: false, msg: 'Failed to retrieve messages'});
-    });
-
-});
-*/
 
 /*
     username: a username
@@ -1520,6 +1458,62 @@ router.post('/readmessnotif', passport.authenticate('jwt', {session:false}), (re
         }
     });
 });
+
+
+
+router.post('/profile', passport.authenticate('jwt', {session:false}), (req,res) =>{
+
+    let user = validateText(req.body.username);
+
+    var params = {
+        TableName: 'SNROOT',
+        KeyConditionExpression: 'PKEY = :arg0 AND (SKEY BETWEEN :arg1 AND :arg2)',
+        ScanIndexForward: false,
+        Limit: 10,
+        ExpressionAttributeValues:{
+            ':arg0': 'USER#' + user,
+            ':arg1': 'POST#' + user + '#',
+            ':arg2': 'POST#' + user + '$'
+        },
+        ProjectionExpression: "#descriptionid, #feedid, #nCommentsid, #nGiftsid, #nLikesid, #timestampid, #imgUrlid",
+        ExpressionAttributeNames:{
+            "#descriptionid": 'description',
+            '#feedid': 'feed',
+            '#nCommentsid': 'nComments',
+            '#nGiftsid' : 'nGifts',
+            '#nLikesid' : 'nLikes',
+            '#timestampid': 'timestamp',
+            '#imgUrlid': 'imgUrl'
+        },
+    }
+
+    var params2 = {
+        TableName: 'SNROOT',
+        Key: {
+            PKEY: 'USER#' + user,
+            SKEY: '#METADATA#' + user
+        },
+        ProjectionExpression: "#profilepicid",
+        ExpressionAttributeNames:{
+            "#profilepicid": 'profilePic'
+        },
+    }
+   
+    Promise.all([ docClient.query(params).promise(), docClient.get(params2).promise() ])
+        .then( values => {
+            
+            return res.status(200).json({ 
+                profilePic: values[1].Item.profilePic,
+                posts: values[0].Items
+                });
+
+        }).catch(errors => {
+            console.log(errors);
+            return res.status(500).json({success: false, msg: 'could not get profile'});
+        });
+});
+
+
 
 module.exports.router = router;
 
